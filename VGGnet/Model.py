@@ -13,6 +13,10 @@ from torchvision.transforms.transforms import ToPILImage
 from Dataloader import Breast_cancer_dataset
 from sklearn.model_selection import train_test_split
 
+from torch.utils.tensorboard import SummaryWriter
+
+writer = SummaryWriter('./runs')
+
 # Represent output channels after Conv layer
 VGG_types = {
     'VGG_SS': [64, 128, 'M', 256, 256, 'M', 512, 512 , 'M', 512, 512], 
@@ -72,16 +76,27 @@ class VGG_net(nn.Module):
         return nn.Sequential(*layers)
 
 
+def save_checkpoint(state,filename):
+    print("=> Saving checkpoint")
+    torch.save(state,filename)
+
+def load_checkpoint(checkpoint):
+    print("=> Loading checkpoint")
+    model.load_state_dict(checkpoint['state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 model = VGG_net(in_channels = 3, num_classes = 2).to(device)
 # x = torch.randn(16,3,224,224).to(device)
 # print(model(x))
+
 # Hyperparams
 
-num_epochs = 10
-batch_size = 128
-learning_rate = 0.01
+num_epochs = 50
+batch_size = 64
+learning_rate = 0.001
+load_model = False
 
 # Dataset Transform
 transform = transforms.Compose([    
@@ -103,35 +118,67 @@ test_dataset = Breast_cancer_dataset(df_data = test, transform = transform)
 train_loader = torch.utils.data.DataLoader(train_dataset,batch_size = 128, shuffle = True, num_workers = 0)
 test_loader = torch.utils.data.DataLoader(test_dataset,batch_size = 128, shuffle = False, num_workers = 0)
 
+# For Sanity check
+# images, labels = next(iter(train_loader))
+
+# print(total_step)
+total_step = len(train_loader)
+
 # Criterion
 criterion = nn.CrossEntropyLoss()
 
 # Optimizer
 
-import torch.optim as optim
-
 optimizer = optim.SGD(model.parameters(),lr = learning_rate, momentum = 0.9, weight_decay =  0.0002)
 
-# Train the model
+# Load
 
-total_step = len(train_loader)
-print(total_step)
+if load_model:
+    load_checkpoint(torch.load("my_checkpoint.pth.tar"))
+
+# Train the model
 model.train()
+running_loss = 0
+running_correct = 0
 for epoch in range(num_epochs):
+        #if epoch % 20 == 0 : --> for sanity check
+        #print(f"Epoch[{epoch+1}/{num_epochs}]")
+        losses = []
+        if epoch % 5 == 0:
+            checkpoint = {'state_dict': model.state_dict(),'optimizer' : optimizer.state_dict()}
+            filename = "./save/checkpoint_%d.pth.tar" % (epoch)
+            save_checkpoint(checkpoint,filename)
+
         for i, (images,labels) in enumerate(train_loader):
             images = images.to(device)
             labels = labels.to(device)
             
             outputs = model(images)
             loss  = criterion(outputs,labels)
-
+            #print(loss)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            if (i+1) % 100 == 0:
+            running_loss += loss.item()
+            _, predicted = torch.max(outputs.data,1)
+            running_correct += (predicted == labels).sum().item()
 
+            ## check loss, steps per each 100 steps
+            if (i+1) % 100 == 0:
                 print("Epoch [{}/{}], Step [{}/{}] Loss : {:.4f}".format(epoch+1,num_epochs,i+1,total_step,loss.item()))
+                ############# TENSORBOARD ########################
+                #Loss(Scalar) -> writer.add_scalar
+                writer.add_scalar('training loss', running_loss / 100, epoch * total_step + i)
+                running_accuracy = running_correct / predicted.size(0) / 100
+                #predicted.size(0) = batch size
+                #predicted.size(0) * 100 ->>> Num of step in current epoch
+                writer.add_scalar('accuracy', running_accuracy, epoch * total_step + i)
+
+                ##Clear for accuracy, loss
+                running_correct = 0
+                running_loss = 0.0
+                ###################################################
 
 
 model.eval()
