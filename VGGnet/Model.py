@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
+import os
 import pandas as pd
 from torch.utils.data import DataLoader
 import torchvision.datasets as datasets
@@ -15,7 +16,7 @@ from sklearn.model_selection import train_test_split
 
 from torch.utils.tensorboard import SummaryWriter
 
-writer = SummaryWriter('./runs')
+writer = SummaryWriter('./runs/30epoch')
 
 # Represent output channels after Conv layer
 VGG_types = {
@@ -93,7 +94,7 @@ model = VGG_net(in_channels = 3, num_classes = 2).to(device)
 
 # Hyperparams
 
-num_epochs = 50
+num_epochs = 30
 batch_size = 64
 learning_rate = 0.001
 load_model = False
@@ -143,10 +144,9 @@ running_correct = 0
 for epoch in range(num_epochs):
         #if epoch % 20 == 0 : --> for sanity check
         #print(f"Epoch[{epoch+1}/{num_epochs}]")
-        losses = []
-        if epoch % 5 == 0:
+        if (epoch + 1 )% 5 == 0:
             checkpoint = {'state_dict': model.state_dict(),'optimizer' : optimizer.state_dict()}
-            filename = "./save/checkpoint_%d.pth.tar" % (epoch)
+            filename = "./save/30epoch/checkpoint_%d.pth.tar" % (epoch)
             save_checkpoint(checkpoint,filename)
 
         for i, (images,labels) in enumerate(train_loader):
@@ -163,36 +163,38 @@ for epoch in range(num_epochs):
             running_loss += loss.item()
             _, predicted = torch.max(outputs.data,1)
             running_correct += (predicted == labels).sum().item()
-
             ## check loss, steps per each 100 steps
             if (i+1) % 100 == 0:
+                print(running_correct)
                 print("Epoch [{}/{}], Step [{}/{}] Loss : {:.4f}".format(epoch+1,num_epochs,i+1,total_step,loss.item()))
-                ############# TENSORBOARD ########################
-                #Loss(Scalar) -> writer.add_scalar
-                writer.add_scalar('training loss', running_loss / 100, epoch * total_step + i)
-                running_accuracy = running_correct / predicted.size(0) / 100
-                #predicted.size(0) = batch size
-                #predicted.size(0) * 100 ->>> Num of step in current epoch
-                writer.add_scalar('accuracy', running_accuracy, epoch * total_step + i)
+                writer.add_scalar('Training loss per 100 iteration', loss.item(), epoch * total_step + i)
+        ############# TENSORBOARD ########################
+        #Loss(Scalar) -> writer.add_scalar
+        writer.add_scalar('Training loss per epoch', running_loss / total_step, epoch)
+        running_accuracy = (running_correct / len(train_dataset)) * 100
+        #predicted.size(0) = batch size
+        #predicted.size(0) * 100 ->>> Num of step in current epoch
+        writer.add_scalar('Train Accuracy per epoch', running_accuracy, epoch)
+        print("Epoch [{}] Training loss = {}, Train Accuracy = {} % ".format(epoch, running_loss / total_step, running_accuracy))
+        ##Clear for accuracy, loss
+        running_correct = 0
+        running_loss = 0.0
+        ###################################################
 
-                ##Clear for accuracy, loss
-                running_correct = 0
-                running_loss = 0.0
-                ###################################################
 
+        model.eval()
+        with torch.no_grad():
 
-model.eval()
-with torch.no_grad():
+            correct = 0 
+            total = 0
+            for images, labels in test_loader:
+                images = images.to(device)
+                labels = labels.to(device)
+                outputs = model(images)
+                _ , predicted = torch.max(outputs.data,1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
 
-    correct = 0 
-    total = 0
-    for images, labels in test_loader:
-        images = images.to(device)
-        labels = labels.to(device)
-        outputs = model(images)
-        _ , predicted = torch.max(outputs.data,1)
-        total += labels.size(0)
-        correct += (predicted == labels).sum().item()
-
-    
-    print('Accuaracy of the model on the test images: {}%'.format(100*correct/total))
+            writer.add_scalar('Test Accuracy per epoch',  100 * correct/total, epoch )
+            print('Accuaracy of the model on the test images: {}%'.format(100*correct/total))
+        model.train()
