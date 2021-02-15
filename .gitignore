@@ -1,0 +1,8 @@
+Googlenet/runs
+Googlenet/save
+VGGnet/runs
+VGGnet/save
+Resnet/runs
+Resnet/save
+*/__pycache__
+*/.vscode
